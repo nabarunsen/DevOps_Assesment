@@ -1,0 +1,632 @@
+Step 1 - Install Helm Client
+============================
+
+Skip this section if you have helm installed.
+
+The easiest way to install cert-manager is to use Helm, a templating and deployment tool for Kubernetes resources.
+
+First, ensure the Helm client is installed following the Helm installation instructions.
+
+For example, on macOS:
+
+$ brew install kubernetes-helm
+
+Step 2 - Installer Tiller
+============================
+
+Skip this section if you have Tiller set-up.
+
+Tiller is Helm’s server-side component, which the helm client uses to deploy resources.
+
+
+Create the a ServiceAccount for tiller:
+
+$ kubectl create serviceaccount tiller --namespace=kube-system
+serviceaccount "tiller" created
+Grant the tiller service account cluster admin privileges:
+
+$ kubectl create clusterrolebinding tiller-admin --serviceaccount=kube-system:tiller --clusterrole=cluster-admin
+clusterrolebinding.rbac.authorization.k8s.io "tiller-admin" created
+Install tiller with the tiller service account:
+
+$ helm init --service-account=tiller
+$HELM_HOME has been configured at /Users/myaccount/.helm.
+
+Tiller (the Helm server-side component) has been installed into your Kubernetes Cluster.
+
+Please note: by default, Tiller is deployed with an insecure 'allow unauthenticated users' policy.
+To prevent this, run `helm init` with the --tiller-tls-verify flag.
+For more information on securing your installation see: https://docs.helm.sh/using_helm/#securing-your-helm-installation
+Happy Helming!
+Update the helm repository with the latest charts:
+
+$ helm repo update
+Hang tight while we grab the latest from your chart repositories...
+...Skip local chart repository
+...Successfully got an update from the "stable" chart repository
+...Successfully got an update from the "coreos" chart repository
+Update Complete. ⎈ Happy Helming!⎈
+
+Step 3 - Deploy the NGINX Ingress Controller
+============================================
+
+
+Use helm to install an Nginx Ingress controller:
+
+$ helm install stable/nginx-ingress --name quickstart
+
+NAME:   quickstart
+LAST DEPLOYED: Sat Nov 10 10:25:06 2018
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/ConfigMap
+NAME                                 AGE
+quickstart-nginx-ingress-controller  0s
+
+==> v1beta1/ClusterRole
+quickstart-nginx-ingress  0s
+
+==> v1beta1/Deployment
+quickstart-nginx-ingress-controller       0s
+quickstart-nginx-ingress-default-backend  0s
+
+==> v1/Pod(related)
+
+NAME                                                      READY  STATUS             RESTARTS  AGE
+quickstart-nginx-ingress-controller-6cfc45747-wcxrg       0/1    ContainerCreating  0         0s
+quickstart-nginx-ingress-default-backend-bf9db5c67-dkg4l  0/1    ContainerCreating  0         0s
+
+==> v1/ServiceAccount
+
+NAME                      AGE
+quickstart-nginx-ingress  0s
+
+==> v1beta1/ClusterRoleBinding
+quickstart-nginx-ingress  0s
+
+==> v1beta1/Role
+quickstart-nginx-ingress  0s
+
+==> v1beta1/RoleBinding
+quickstart-nginx-ingress  0s
+
+==> v1/Service
+quickstart-nginx-ingress-controller       0s
+quickstart-nginx-ingress-default-backend  0s
+
+
+$kubectl --namespace default get services -o wide -w quickstart-nginx-ingress-controller'
+
+An example Ingress that makes use of the controller:
+
+  apiVersion: extensions/v1beta1
+  kind: Ingress
+  metadata:
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    name: example
+    namespace: foo
+  spec:
+    rules:
+      - host: www.example.com
+        http:
+          paths:
+            - backend:
+                serviceName: exampleService
+                servicePort: 80
+              path: /
+    # This section is only required if TLS is to be enabled for the Ingress
+    tls:
+        - hosts:
+            - www.example.com
+          secretName: example-tls
+
+If TLS is enabled for the Ingress, a Secret containing the certificate and key must also be provided:
+
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: example-tls
+    namespace: foo
+  data:
+    tls.crt: <base64 encoded cert>
+    tls.key: <base64 encoded key>
+  type: kubernetes.io/tls
+
+
+ $ kubectl get svc
+
+ NAME                                       TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)                      AGE
+ kubernetes                                 ClusterIP      10.63.240.1     <none>           443/TCP                      23m
+ quickstart-nginx-ingress-controller        LoadBalancer   10.63.248.177   35.233.154.161   80:31345/TCP,443:31376/TCP   16m
+ quickstart-nginx-ingress-default-backend   ClusterIP      10.63.250.234   <none>           80/TCP                       16m
+
+This command shows you all the services in your cluster (in the default namespace), and any external IP addresses they have.
+When you first create the controller, your cloud provider won’t have assigned and allocated an IP address through the LoadBalancer yet.
+Until it does, the external IP address for the service will be listed as <pending>.
+
+
+
+
+
+Step 4 - Assign a DNS name
+==========================
+
+The external IP that is allocated to the ingress-controller is the IP to which all incoming traffic should be routed.
+To enable this, add it to a DNS zone you control, for example as example.your-domain.com.
+
+
+
+Step 5 - Deploy an Example Service
+===================================
+
+Your service may have its own chart, or you may be deploying it directly with manifests.
+This quickstart uses manifests to create and expose a sample service. The example service uses kuard, a demo application which makes an excellent back-end for examples.
+
+The quickstart example uses three manifests for the sample. The first two are a sample deployment and an associated service:
+
+deployment manifest: deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kuard
+spec:
+  selector:
+    matchLabels:
+      app: kuard
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: kuard
+    spec:
+      containers:
+      - image: gcr.io/kuar-demo/kuard-amd64:1
+        imagePullPolicy: Always
+        name: kuard
+        ports:
+        - containerPort: 8080
+service manifest: service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: kuard
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: kuard
+
+
+$ kubectl apply -f https://raw.githubusercontent.com/jetstack/cert-manager/release-0.11/docs/tutorials/acme/quick-start/example/deployment.yaml
+deployment.extensions "kuard" created
+
+$ kubectl apply -f https://raw.githubusercontent.com/jetstack/cert-manager/release-0.11/docs/tutorials/acme/quick-start/example/service.yaml
+service "kuard" created
+An ingress resource is what Kubernetes uses to expose this example service outside the cluster. Need to download and modify the example manifest to reflect the domain that you own or control to complete this example.
+
+A sample ingress you can start with is:
+
+ingress manifest: ingress.yaml
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: kuard
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    #cert-manager.io/issuer: "letsencrypt-staging"
+
+spec:
+  tls:
+  - hosts:
+    - example.example.com
+    secretName: quickstart-example-tls
+  rules:
+  - host: example.example.com
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: kuard
+          servicePort: 80
+
+
+$ kubectl create --edit -f https://raw.githubusercontent.com/jetstack/cert-manager/release-0.11/docs/tutorials/acme/quick-start/example/ingress.yaml
+
+# edit the file in your editor, and once it is saved:
+ingress.extensions "kuard" created
+Note
+
+The ingress example we show above has a host definition within it. The nginx-ingress-controller will route traffic when the hostname requested matches the definition in the ingress.
+You can deploy an ingress without a host definition in the rule, but that pattern isn’t usable with a TLS certificate, which expects a fully qualified domain name.
+
+Once it is deployed, you can use the command kubectl get ingress to see the status
+of the ingress:
+NAME      HOSTS     ADDRESS   PORTS     AGE
+kuard     *                   80, 443   17s
+It may take a few minutes, depending on your service provider, for the ingress to be fully created. When it has been created and linked into place, the ingress will show an address as well:
+
+NAME      HOSTS     ADDRESS         PORTS     AGE
+kuard     *         35.199.170.62   80        9m
+Note
+
+The IP address on the ingress may not match the IP address that the nginx-ingress-controller.
+
+Make sure the service is reachable at the domain name you added above, for example http://example.your-domain.com. The simplest way is to open a browser and enter the name that you set up in DNS, and for which we just added the ingress.
+
+You may also use a command line tool like curl to check the ingress.
+
+$ curl -kivL -H 'Host: example.your-domain.com' 'http://35.199.164.14'
+
+
+Warning
+
+It is critical to make sure that your ingress is available and responding correctly on the internet. This quickstart example uses Let’s Encypt to provide the certificates,
+which expects and validates both that the service is available and that during the process of issuing a certificate uses that valdiation as proof that the request for the domain belongs to someone with sufficient control over the domain.
+
+
+
+Step 5 - Deploy Cert Manager
+============================
+
+We need to install cert-manager to do the work with kubernetes to request a certificate and respond to the challenge to validate it. We can use helm or plain Kubernetes manifest to install cert-manager.
+
+
+More information on the differences between Issuers and ClusterIssuers and when you might choose to use each can be found at:
+
+https://docs.cert-manager.io/en/latest/tasks/issuers/index.html#difference-between-issuers-and-clusterissuers
+
+Certificate
+
+A certificate is the resource that cert-manager uses to expose the state of a request as well as track upcoming expirations.
+
+Step 6 - Configure Let’s Encrypt Issuer
+======================================='
+
+We will set up two issuers for Let’s Encrypt in this example. The Let’s Encrypt production issuer has very strict rate limits.
+When you are experimenting and learning, it is very easy to hit those limits, and confuse rate limiting with errors in configuration or operation.
+
+Because of this, we will start with the Let’s Encrypt staging issuer, and once that is working switch to a production issuer.
+
+Create this definition locally and update the email address to your own. This email required by Let’s Encrypt and used to notify you of certificate expirations and updates.
+
+staging issuer: staging-issuer.yaml
+   apiVersion: cert-manager.io/v1alpha2
+   kind: Issuer
+   metadata:
+     name: letsencrypt-staging
+   spec:
+     acme:
+       # The ACME server URL
+       server: https://acme-staging-v02.api.letsencrypt.org/directory
+       # Email address used for ACME registration
+       email: user@example.com
+       # Name of a secret used to store the ACME account private key
+       privateKeySecretRef:
+         name: letsencrypt-staging
+       # Enable the HTTP-01 challenge provider
+       solvers:
+       - http01:
+           ingress:
+             class:  nginx
+Once edited, apply the custom resource:
+
+$ kubectl create --edit -f https://raw.githubusercontent.com/jetstack/cert-manager/release-0.11/docs/tutorials/acme/quick-start/example/staging-issuer.yaml
+issuer.cert-manager.io "letsencrypt-staging" created
+
+
+production issuer: production-issuer.yaml
+   apiVersion: cert-manager.io/v1alpha2
+   kind: Issuer
+   metadata:
+     name: letsencrypt-prod
+   spec:
+     acme:
+       # The ACME server URL
+       server: https://acme-v02.api.letsencrypt.org/directory
+       # Email address used for ACME registration
+       email: user@example.com
+       # Name of a secret used to store the ACME account private key
+       privateKeySecretRef:
+         name: letsencrypt-prod
+       # Enable the HTTP-01 challenge provider
+       solvers:
+       - http01:
+           ingress:
+             class: nginx
+$ kubectl create --edit -f https://raw.githubusercontent.com/jetstack/cert-manager/release-0.11/docs/tutorials/acme/quick-start/example/production-issuer.yaml
+issuer.cert-manager.io "letsencrypt-prod" created
+
+
+Check on the status of the issuer after you create it:
+
+ $ kubectl describe issuer letsencrypt-staging
+
+ Name:         letsencrypt-staging
+ Namespace:    default
+ Labels:       <none>
+ Annotations:  kubectl.kubernetes.io/last-applied-configuration={"apiVersion":"cert-manager.io/v1alpha2","kind":"Issuer","metadata":{"annotations":{},"name":"letsencrypt-staging","namespace":"default"},"spec":{"a...
+ API Version:  cert-manager.io/v1alpha2
+ Kind:         Issuer
+ Metadata:
+   Cluster Name:
+   Creation Timestamp:  2018-11-17T18:03:54Z
+   Generation:          0
+   Resource Version:    9092
+   Self Link:           /apis/cert-manager.io/v1alpha2/namespaces/default/issuers/letsencrypt-staging
+   UID:                 25b7ae77-ea93-11e8-82f8-42010a8a00b5
+ Spec:
+   Acme:
+     Email:  your.email@your-domain.com
+     Private Key Secret Ref:
+       Key:
+       Name:  letsencrypt-staging
+     Server:  https://acme-staging-v02.api.letsencrypt.org/directory
+     Solvers:
+       Http 01:
+         Ingress:
+           Class:  nginx
+ Status:
+   Acme:
+     Uri:  https://acme-staging-v02.api.letsencrypt.org/acme/acct/7374163
+   Conditions:
+     Last Transition Time:  2018-11-17T18:04:00Z
+     Message:               The ACME account was registered with the ACME server
+     Reason:                ACMEAccountRegistered
+     Status:                True
+     Type:                  Ready
+ Events:                    <none>
+You should see the issuer listed with a registered account.
+
+Step 7 - Deploy a TLS Ingress Resource
+======================================
+
+
+Edit the ingress add the annotations that were commented out in our earlier example:
+
+ingress tls: ingress-tls.yaml
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: kuard
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/issuer: "letsencrypt-staging"
+
+spec:
+  tls:
+  - hosts:
+    - example.example.com
+    secretName: quickstart-example-tls
+  rules:
+  - host: example.example.com
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: kuard
+          servicePort: 80
+and apply it:
+
+$ kubectl create --edit -f https://raw.githubusercontent.com/jetstack/cert-manager/release-0.11/docs/tutorials/acme/quick-start/example/ingress-tls.yaml
+ingress.extensions "kuard" configured
+
+
+$ kubectl get certificate
+NAME                     READY   SECRET                   AGE
+quickstart-example-tls   True    quickstart-example-tls   16m
+
+
+ $ kubectl describe certificate quickstart-example-tls
+
+ Name:         quickstart-example-tls
+ Namespace:    default
+ Labels:       <none>
+ Annotations:  <none>
+ API Version:  cert-manager.io/v1alpha2
+ Kind:         Certificate
+ Metadata:
+   Cluster Name:
+   Creation Timestamp:  2018-11-17T17:58:37Z
+   Generation:          0
+   Owner References:
+     API Version:           extensions/v1beta1
+     Block Owner Deletion:  true
+     Controller:            true
+     Kind:                  Ingress
+     Name:                  kuard
+     UID:                   a3e9f935-ea87-11e8-82f8-42010a8a00b5
+   Resource Version:        9295
+   Self Link:               /apis/cert-manager.io/v1alpha2/namespaces/default/certificates/quickstart-example-tls
+   UID:                     68d43400-ea92-11e8-82f8-42010a8a00b5
+ Spec:
+   Dns Names:
+     example.your-domain.com
+   Issuer Ref:
+     Kind:       Issuer
+     Name:       letsencrypt-staging
+   Secret Name:  quickstart-example-tls
+ Status:
+   Acme:
+     Order:
+       URL:  https://acme-staging-v02.api.letsencrypt.org/acme/order/7374163/13665676
+   Conditions:
+     Last Transition Time:  2018-11-17T18:05:57Z
+     Message:               Certificate issued successfully
+     Reason:                CertIssued
+     Status:                True
+     Type:                  Ready
+ Events:
+   Type     Reason          Age                From          Message
+   ----     ------          ----               ----          -------
+   Normal   CreateOrder     9m                 cert-manager  Created new ACME order, attempting validation...
+   Normal   DomainVerified  8m                 cert-manager  Domain "example.your-domain.com" verified with "http-01" validation
+   Normal   IssueCert       8m                 cert-manager  Issuing certificate...
+   Normal   CertObtained    7m                 cert-manager  Obtained certificate from ACME server
+   Normal   CertIssued      7m                 cert-manager  Certificate issued Successfully
+
+
+
+
+$ kubectl describe secret quickstart-example-tls
+
+Name:         quickstart-example-tls
+Namespace:    default
+Labels:       cert-manager.io/certificate-name=quickstart-example-tls
+Annotations:  cert-manager.io/alt-names=example.your-domain.com
+              cert-manager.io/common-name=example.your-domain.com
+              cert-manager.io/issuer-kind=Issuer
+              cert-manager.io/issuer-name=letsencrypt-staging
+
+Type:  kubernetes.io/tls
+
+Data
+====
+tls.crt:  3566 bytes
+tls.key:  1675 bytes
+
+
+ingress tls final: ingress-tls-final.yaml
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: kuard
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/issuer: "letsencrypt-prod"
+
+spec:
+  tls:
+  - hosts:
+    - example.example.com
+    secretName: quickstart-example-tls
+  rules:
+  - host: example.example.com
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: kuard
+          servicePort: 80
+
+$ kubectl create --edit -f https://raw.githubusercontent.com/jetstack/cert-manager/release-0.11/docs/tutorials/acme/quick-start/example/ingress-tls-final.yaml
+
+ingress.extensions "kuard" configured
+You will also need to delete the existing secret, which cert-manager is watching and will cause it to reprocess the request with the updated issuer.
+
+$ kubectl delete secret quickstart-example-tls
+
+secret "quickstart-example-tls" deleted
+
+
+ $ kubectl describe certificate
+
+ Name:         quickstart-example-tls
+ Namespace:    default
+ Labels:       <none>
+ Annotations:  <none>
+ API Version:  cert-manager.io/v1alpha2
+ Kind:         Certificate
+ Metadata:
+   Cluster Name:
+   Creation Timestamp:  2018-11-17T18:36:48Z
+   Generation:          0
+   Owner References:
+     API Version:           extensions/v1beta1
+     Block Owner Deletion:  true
+     Controller:            true
+     Kind:                  Ingress
+     Name:                  kuard
+     UID:                   a3e9f935-ea87-11e8-82f8-42010a8a00b5
+   Resource Version:        283686
+   Self Link:               /apis/cert-manager.io/v1alpha2/namespaces/default/certificates/quickstart-example-tls
+   UID:                     bdd93b32-ea97-11e8-82f8-42010a8a00b5
+ Spec:
+   Dns Names:
+     example.your-domain.com
+   Issuer Ref:
+     Kind:       Issuer
+     Name:       letsencrypt-prod
+   Secret Name:  quickstart-example-tls
+ Status:
+   Conditions:
+     Last Transition Time:  2019-01-09T13:52:05Z
+     Message:               Certificate does not exist
+     Reason:                NotFound
+     Status:                False
+     Type:                  Ready
+ Events:
+   Type    Reason        Age   From          Message
+kubectl describe certificate quickstart-example-tls   ----    ------        ----  ----          -------
+   Normal  Generated     18s   cert-manager  Generated new private key
+   Normal  OrderCreated  18s   cert-manager  Created Order resource "quickstart-example-tls-889745041"
+
+
+$ kubectl describe order quickstart-example-tls-889745041
+...
+Events:
+  Type    Reason      Age   From          Message
+  ----    ------      ----  ----          -------
+  Normal  Created     90s   cert-manager  Created Challenge resource "quickstart-example-tls-889745041-0" for domain "example.your-domain.com"
+
+
+$ kubectl describe challenge quickstart-example-tls-889745041-0
+...
+
+Status:
+  Presented:   true
+  Processing:  true
+  Reason:      Waiting for http-01 challenge propagation
+  State:       pending
+Events:
+  Type    Reason     Age   From          Message
+  ----    ------     ----  ----          -------
+  Normal  Started    15s   cert-manager  Challenge scheduled for processing
+  Normal  Presented  14s   cert-manager  Presented challenge using http-01 challenge mechanism
+
+
+$ kubectl describe challenge quickstart-example-tls-889745041-0
+...
+
+Status:
+  Presented:   false
+  Processing:  false
+  Reason:      Successfully authorized domain
+  State:       valid
+Events:
+  Type    Reason          Age   From          Message
+  ----    ------          ----  ----          -------
+  Normal  Started         71s   cert-manager  Challenge scheduled for processing
+  Normal  Presented       70s   cert-manager  Presented challenge using http-01 challenge mechanism
+  Normal  DomainVerified  2s    cert-manager  Domain "example.your-domain.com" verified with "http-01" validation
+
+
+$ kubectl describe order quickstart-example-tls-889745041
+...
+Events:
+  Type    Reason      Age   From          Message
+  ----    ------      ----  ----          -------
+  Normal  Created     90s   cert-manager  Created Challenge resource "quickstart-example-tls-889745041-0" for domain "example.your-domain.com"
+  Normal  OrderValid  16s   cert-manager  Order completed successfully
+
+
+$ kubectl describe certificate quickstart-example-tls
+
+Status:
+  Conditions:
+    Last Transition Time:  2019-01-09T13:57:52Z
+    Message:               Certificate is up to date and has not expired
+    Reason:                Ready
+    Status:                True
+    Type:                  Ready
+  Not After:               2019-04-09T12:57:50Z
+Events:
+  Type    Reason         Age                  From          Message
+  ----    ------         ----                 ----          -------
+  Normal  Generated      11m                  cert-manager  Generated new private key
+  Normal  OrderCreated   11m                  cert-manager  Created Order resource "quickstart-example-tls-889745041"
+  Normal  OrderComplete  10m                  cert-manager  Order "quickstart-example-tls-8897450
